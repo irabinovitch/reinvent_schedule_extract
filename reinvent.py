@@ -54,6 +54,21 @@ def login(chrome_driver, username, password):
     login_button = chrome_driver.find_element_by_id("loginButton")
     login_button.click()
 
+def get_session_speaker(session_id):
+    '''
+    Retrieve speaker name for a given session
+    '''
+    driver = webdriver.Chrome(chrome_options=chrome_options, executable_path=CHROME_DRIVER)
+    driver.get("https://www.portal.reinvent.awsevents.com/connect/sessionDetail.ww?SESSION_ID="+str(session_id))
+    session_page = driver.page_source
+    driver.close()
+    speaker_soup = BeautifulSoup(session_page, "html.parser")
+    speakers = speaker_soup.find_all("a", class_="speakerProfile")
+    speaker_list = ""
+    for speaker in speakers:
+      speaker_list = speaker_list + (speaker.string.encode('utf-8').replace("\t", "").replace("\n", "")) + "\r"
+    return speaker_list.strip()
+
 def get_session_time(session_id):
     '''
     Calls the API on the reinvent event website which returns session times.
@@ -68,20 +83,23 @@ def get_session_time(session_id):
         "c0-id": 0,
         "c0-param0": "number:" + session_id,
         "c0-param1": "false",
-        "batchId": 5,
+        "batchId": 1,
         "instanceId": 0,
         "page": "%2Fconnect%2Fsearch.ww",
-        "scriptSessionId": "1234567"
+        "scriptSessionId": "1234567",
     }
-    headers = {'Content-Type': 'text/plain'}
+    headers = {'origin': 'https://www.portal.reinvent.awsevents.com', 'Content-Type': 'text/plain'}
     r = requests.post(url, headers=headers, data=data, verify=REQ_VERIFY)
     returned = r.content
     returned = returned.replace("\\", '')
-
     # Returns in XHR format. Strip out the relevant information.
-    start_time = re.search(r"startTime\":(\".*?\")", returned, re.DOTALL | re.MULTILINE).group(1)
-    end_time = re.search(r"endTime\":(\".*?\")", returned, re.DOTALL | re.MULTILINE).group(1)
-    room = re.search(r"room\":(\".*?\")", returned, re.DOTALL | re.MULTILINE).group(1)
+    try:
+      start_time = re.search(r"startTime\":(\".*?\")", returned, re.DOTALL | re.MULTILINE).group(1)
+      end_time = re.search(r"endTime\":(\".*?\")", returned, re.DOTALL | re.MULTILINE).group(1)
+      room = re.search(r"room\":(\".*?\")", returned, re.DOTALL | re.MULTILINE).group(1)
+    except:
+      print "ERROR: start/end/room failed to regex"
+      print r
 
     time_information = {
         "start_time": start_time.replace('"', ''),
@@ -99,7 +117,6 @@ login(driver, USERNAME, PASSWORD)
 # Get More Results link stops working on the full list. Haven't had issues
 # looking at the lists day by day.
 for venue in VENUE_CODES:
-    #driver.get("https://www.portal.reinvent.awsevents.com/connect/search.ww#loadSearch-searchPhrase=&searchType=session&tc=0&sortBy=daytime&dayID="+str(day))
     driver.get("https://www.portal.reinvent.awsevents.com/connect/search.ww#loadSearch-searchPhrase=&searchType=session&tc=0&sortBy=abbreviationSort&p=&i(728)="+str(venue))
     sleep(3)
     print ("Getting Content for Venue Code: " + str(venue))
@@ -138,7 +155,7 @@ sessions = soup.find_all("div", class_="sessionRow")
 # Open a blank text file to write sessions to
 file = open("sessions.txt","w")
 # Create a header row for the file. Note the PIPE (|) DELIMITER.
-file.write("Session Number|Session Title|Session Interest|Start Time|End Time|Room and Building\n")
+file.write("Session Number|Session Title|Session Speakers|Session Interest|Start Time|End Time|Room and Building\n")
 
 # For each session, pull out the relevant fields and write them to the sessions.txt file.
 for session in sessions:
@@ -146,6 +163,12 @@ for session in sessions:
     session_id = session_soup.find("div", class_="sessionRow")
     session_id = session_id['id']
     session_id = session_id[session_id.find("_")+1:]
+
+    print "session " + session_id + "and interation: " + str(cnt)
+
+    session_speakers = get_session_speaker(session_id)
+    print "session_speakers: ", session_speakers
+
     session_timing = get_session_time(session_id)
     session_number = session_soup.find("span", class_="abbreviation")
     session_number = session_number.string.replace(" - ", "")
@@ -163,7 +186,19 @@ for session in sessions:
     else:
         session_interest = True
 
-    write_contents = str(session_number) + "|" + session_title + "|" + str(session_interest) + "|" + str(session_timing['start_time']) + "|" + str(session_timing['end_time']) + "|" + str(session_timing['room'] + "|" + str(session_timing['day']))
+    try:
+      write_contents = str(session_number) + "|" + session_title + "||" + '"' + session_speakers + '"' + "||" + str(session_interest) + "|" + str(session_timing['start_time']) + "|" + str(session_timing['end_time']) + "|" + str(session_timing['room'] + "|" + str(session_timing['day']))
+    except:
+      print "Error: "
+      print str(session_number)
+      print session_title
+      print str(session_speakers)
+      print str(session_interest)
+      print str(session_timing['start_time'])
+      print str(session_timing['end_time'])
+      print str(session_timing['room'])
+      print str(session_timing['day'])
+
     file.write(write_contents.encode('utf-8').strip() + "\n")
     # Print the session title for each session written to the file
     print (session_title.encode('utf-8').strip())
